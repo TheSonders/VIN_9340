@@ -105,7 +105,6 @@ reg [4:0] Y=0;
 reg [5:0] Y0=0;
 reg [6:0] Attribute_Latch=0;    //Page 17
 reg [3:0] Type_Latch=0;
-reg [3:0] SliceNumber=0;
 reg [7:0] SliceVal=0;
 
 
@@ -113,7 +112,7 @@ reg [1:0]WindowDivider=0;       //0 to 3
 reg [5:0]TF=0;                  //0 to 55 Total Windows per line
 reg [8:0]LineCounter=0;         //0 to 261 or 311
 reg c_t_copy=0;
-reg _ve_copy=0;
+reg _ve_copy=1;
 
 always @(posedge clk)begin
     WindowDivider<=WindowDivider+1;       
@@ -132,7 +131,7 @@ always @(posedge clk)begin
                 Type_Latch<={busA[7],busB[7:5]};
                 end             
             {2'b10}:begin           //CYCLE TYPE 2 (Page 19)       
-                adr[3:0]<=SliceNumber;
+                adr[3:0]<=`M_Slice;
                 _sg<=0;
                 end
             {2'b11}:begin           //GEN detects _sg
@@ -153,17 +152,27 @@ always @(posedge clk)begin
                         _st<=0;
                         r_w<=0;
                     end
+                    else ACCESS_MODE;
                 end
                 end
             {2'b01}:begin               //WAIT
                 end             
-            {2'b10}:begin       
-                if (c_t_copy) begin
-                    DECODE_COMMAND;
+            {2'b10}:begin
+                if (~_ve_copy) begin
+                    if (c_t_copy) begin
+                        DECODE_COMMAND;
+                    end
+                    else begin
+                        if (`M_Access==`AcMode_WriteMP ||
+                            `M_Access==`AcMode_ReadMP)INC_C;
+                    end
                 end
                 end
             {2'b11}:begin               //RESTORE BUS AND COPY     
-                
+                    _ve_copy<=1;
+                    _st<=1;
+                    _sm<=1;
+                    _sg<=1;
                 end
         endcase
     end     //BusEnable==LOW
@@ -205,6 +214,32 @@ begin
     `COM_LoadR:     begin R=busA;end
     `COM_LoadY0:    begin Y0=busA[5:0];end
     endcase
+end
+endtask
+
+task ACCESS_MODE;         //Table 3 page 24
+begin
+    case (`M_Access)
+    `AcMode_WriteMP:     begin          //CYCLE TYPE 5 (Page 19)
+                            adr=Transcode;r_w=0;_sm=0;_st=0;end 
+    `AcMode_ReadMP:      begin          //CYCLE TYPE 4 (Page 19)
+                            adr=Transcode;r_w=1;_sm=0;_st=0;end 
+    `AcMode_WriteMP_NI:  begin          //CYCLE TYPE 5 (Page 19)
+                            adr=Transcode;r_w=0;_sm=0;_st=0;end 
+    `AcMode_ReadMP_NI:   begin          //CYCLE TYPE 4 (Page 19)
+                            adr=Transcode;r_w=1;_sm=0;_st=0;end 
+    `AcMode_WriteSlice:  begin          //CYCLE TYPE 7 (Page 19)
+                            adr[3:0]<=`M_Slice;r_w=0;_sg=0;_st=0;INC_NT;end 
+    `AcMode_ReadSlice:   begin          //CYCLE TYPE 6 (Page 19)
+                            adr[3:0]<=`M_Slice;r_w=1;_sg=0;_st=0;INC_NT;end 
+    endcase
+end
+endtask
+
+task INC_NT;
+begin
+    if (`M_Slice==9) `M_Slice=0;
+    else `M_Slice=`M_Slice+1;
 end
 endtask
 
