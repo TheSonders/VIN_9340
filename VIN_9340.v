@@ -37,6 +37,8 @@
 `define COM_LoadR       3'b101
 `define COM_LoadY0      3'b110
 
+`define Service_Row     30   
+
 module VIN_9340(
     //Bus interface
     input wire  [7:0]busA,
@@ -183,7 +185,10 @@ always @(posedge clk)begin
             if ((~`R_50Hz && LineCounter==261)
                 ||LineCounter==311)
                 LineCounter<=0;
-            else LineCounter<=LineCounter+1;
+            else begin 
+                if (LineCounter==`Service_Row) Y<=Y0[4:0];
+                LineCounter<=LineCounter+1;
+            end
         end
         else TF<=TF+1;
     end //WindowDivider
