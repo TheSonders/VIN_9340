@@ -21,10 +21,10 @@
 `define M_Slice       M[3:0]
 
 // M Access mode                Table 3 Page 24
-`define AcMode_Write        3'b000
-`define AcMode_Read         3'b001
-`define AcMode_WriteNI      3'b010
-`define AcMode_ReadNI       3'b011
+`define AcMode_WriteMP      3'b000
+`define AcMode_ReadMP       3'b001
+`define AcMode_WriteMP_NI   3'b010
+`define AcMode_ReadMP_NI    3'b011
 `define AcMode_WriteSlice   3'b100
 `define AcMode_ReadSlice    3'b101
 
@@ -146,7 +146,7 @@ always @(posedge clk)begin
                                         //ACCESS AUTOMATON (Page 3 Column 2)
         case (WindowDivider)            //Figure 7 / Page 7
             {2'b00}:begin
-                if (~_ve) begin         //Access pending
+                if (~_ve) begin         //Access pending?
                     c_t_copy<=c_t;      //Reading will reset the busy FF
                     _ve_copy<=_ve;      //Capture a copy of C/T and _VE
                     if (c_t) begin      //CYCLE TYPE 3 (Page 19)
@@ -155,16 +155,15 @@ always @(posedge clk)begin
                     end
                 end
                 end
-            {2'b01}:begin           //WAIT
+            {2'b01}:begin               //WAIT
                 end             
             {2'b10}:begin       
                 if (c_t_copy) begin
                     DECODE_COMMAND;
                 end
                 end
-            {2'b11}:begin       
-                _sg<=1;         
-                SliceVal<=busA[7:0];
+            {2'b11}:begin               //RESTORE BUS AND COPY     
+                
                 end
         endcase
     end     //BusEnable==LOW
