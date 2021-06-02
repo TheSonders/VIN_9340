@@ -126,6 +126,9 @@ reg [5:0] Y0=0;
 reg [6:0] AttrL=0;    //Page 17
 reg [3:0] TypeL=0;
 reg [7:0] SliceVal=0;
+reg [2:0] C0=0;     //BGR Color for background
+reg [2:0] C1=0;     //BGR Color for foreground
+reg [3:0] ATTR=0;   //Attributes for custom char
 
 
 reg [1:0]WindowDivider=0;       //0 to 3
@@ -158,6 +161,7 @@ always @(posedge clk)begin
             {2'b11}:begin           //GEN detects _sg
                 _sg<=1;             //at this point
                 SliceVal<=busA[7:0];
+                DECODE_WINDOW_CODE;
                 end
         endcase
     end     //BusEnable==HIGH
@@ -211,6 +215,7 @@ always @(posedge clk)begin
         end
         else TF<=TF+1;
     end //WindowDivider
+    
 end
 
 task INC_C;             //STATE DIAGRAM on PAGE 14
@@ -264,6 +269,18 @@ task INC_NT;
 begin
     if (`M_Slice==9) `M_Slice=0;
     else `M_Slice=`M_Slice+1;
+end
+endtask
+
+task DECODE_WINDOW_CODE;
+begin
+    if GEN_ALPHANUMERIC begin C1=AttrL[2:0];ATTR=AttrL[6:3];end
+    else if GEN_DELIMITER begin C1=AttrL[2:0];C0=AttrL[6:4];end     
+    else if EXT_ALPHANUMERIC begin C1=AttrL[2:0];ATTR=AttrL[6:3];end
+    else if GEN_SEPARATED_SG begin C1=AttrL[2:0];C0=AttrL[6:4];ATTR[]=AttrL[3];end
+    else if GEN_MOSAIC_SG begin C1=AttrL[2:0];C0=AttrL[6:4];ATTR[]=AttrL[3];end
+    else if ILLEGAL begin;end
+    else if EXT_SEMIGRAPHIC begin C1=AttrL[2:0];C0=AttrL[6:4];ATTR[]=AttrL[3];end
 end
 endtask
 
