@@ -28,6 +28,24 @@
 `define AcMode_WriteSlice   3'b100
 `define AcMode_ReadSlice    3'b101
 
+//AttrL from Page Memory    Table 1 Page 23
+`define ATR_RED             AttrL[0]
+`define ATR_GREEN           AttrL[1]
+`define ATR_BLUE            AttrL[2]
+`define ATR_STABLE          AttrL[3]
+`define ATR_DHEIGHT         AttrL[4]
+`define ATR_DWIDTH          AttrL[5]
+`define ATR_REVERSE         AttrL[6]
+
+//TypeL from Page Memory         Table 1 Page 23
+`define GEN_ALPHANUMERIC    (~TypeL[3] && ~TypeL[0])                //0XX0
+`define GEN_DELIMITER       (TypeL==4'1000)                         //1000
+`define EXT_ALPHANUMERIC    (TypeL[3] && ~TypeL[0])                 //1XX0
+`define GEN_SEPARATED_SG    (~TypeL[3] && ~TypeL[2] && TypeL[0])    //00X1
+`define GEN_MOSAIC_SG       (~TypeL[3] && TypeL[2] && TypeL[0])     //01X1
+`define ILLEGAL             (TypeL==4'1001)                         //1001
+`define EXT_SEMIGRAPHIC     (TypeL[3] && TypeL[0])                  //1XX1
+
 //Command codes from busB[7:5] Page 13
 `define COM_BeginRow    3'b000
 `define COM_LoadY       3'b001
@@ -37,7 +55,7 @@
 `define COM_LoadR       3'b101
 `define COM_LoadY0      3'b110
 
-`define Service_Row     30   
+`define Service_Row     30  
 
 module VIN_9340(
     //Bus interface
@@ -105,8 +123,8 @@ reg [7:0] M=0;
 reg [5:0] X=0;
 reg [4:0] Y=0;
 reg [5:0] Y0=0;
-reg [6:0] Attribute_Latch=0;    //Page 17
-reg [3:0] Type_Latch=0;
+reg [6:0] AttrL=0;    //Page 17
+reg [3:0] TypeL=0;
 reg [7:0] SliceVal=0;
 
 
@@ -129,11 +147,12 @@ always @(posedge clk)begin
                 end
             {2'b01}:begin           //Page memory detects _sm
                 _sm<=1;             //at this point
-                Attribute_Latch<=busA[6:0];
-                Type_Latch<={busA[7],busB[7:5]};
+                AttrL<=busA[6:0];
+                TypeL<={busB[7:5],busA[7]};
                 end             
             {2'b10}:begin           //CYCLE TYPE 2 (Page 19)       
-                adr[3:0]<=`M_Slice;
+                adr[3:0]<=`M_Slice; //Check if GEN or EXTENSION
+                adr[4]<=TypeL[3] & (TypeL[2] | TypeL[1]); //NOTA in page 19
                 _sg<=0;
                 end
             {2'b11}:begin           //GEN detects _sg
