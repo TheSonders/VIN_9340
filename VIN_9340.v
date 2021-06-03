@@ -3,8 +3,11 @@
 // EF9340 VIN VideoPac 
 // Antonio Sánchez (@TheSonders)
 // May/2021
+//
+// References:
 // https://github.com/mamedev/mame/blob/master/src/devices/video/ef9340_1.cpp
 // https://home.kpn.nl/~rene_g7400/vp_info.html
+// THOMSON EF9340-EF9341 Datasheet
 //////////////////////////////////////////////////////////////////////////////////
 // R register bits
 `define R_Display     R[0]
@@ -38,13 +41,10 @@
 `define ATR_REVERSE         AttrL[6]
 
 //TypeL from Page Memory         Table 1 Page 23
-`define GEN_ALPHANUMERIC    (~TypeL[3] && ~TypeL[0])                //0XX0
-`define GEN_DELIMITER       (TypeL==4'1000)                         //1000
-`define EXT_ALPHANUMERIC    (TypeL[3] && ~TypeL[0])                 //1XX0
-`define GEN_SEPARATED_SG    (~TypeL[3] && ~TypeL[2] && TypeL[0])    //00X1
-`define GEN_MOSAIC_SG       (~TypeL[3] && TypeL[2] && TypeL[0])     //01X1
-`define ILLEGAL             (TypeL==4'1001)                         //1001
-`define EXT_SEMIGRAPHIC     (TypeL[3] && TypeL[0])                  //1XX1
+`define DELIMITER           (TypeL==4'b1000)                        
+`define ALPHANUMERIC        (~TypeL[0])
+`define ILLEGAL             (TypeL==4'b1001)        
+//`define SEMIGRAPHIC         
 
 //Command codes from busB[7:5] Page 13
 `define COM_BeginRow    3'b000
@@ -54,6 +54,12 @@
 `define COM_LoadM       3'b100
 `define COM_LoadR       3'b101
 `define COM_LoadY0      3'b110
+
+//Attribute bits for ATTR
+`define ATTR_STABLE          ATTR[0]
+`define ATTR_DHEIGHT         ATTR[1]
+`define ATTR_DWIDTH          ATTR[2]
+`define ATTR_REVERSE         ATTR[3]
 
 `define Service_Row     30  
 
@@ -129,7 +135,11 @@ reg [7:0] SliceVal=0;
 reg [2:0] C0=0;     //BGR Color for background
 reg [2:0] C1=0;     //BGR Color for foreground
 reg [3:0] ATTR=0;   //Attributes for custom char
-
+reg BOXED=0;
+reg CONCEALED=0;
+reg UNDERLINE=0;
+reg [5:0]BlinkCounter=0; //Frame counter to get about 0.5Hz
+`define BLINK_ACTIVE BlinkCounter[5]
 
 reg [1:0]WindowDivider=0;       //0 to 3
 reg [5:0]TF=0;                  //0 to 55 Total Windows per line
@@ -137,10 +147,18 @@ reg [8:0]LineCounter=0;         //0 to 261 or 311
 reg c_t_copy=0;
 reg _ve_copy=1;
 
+//Register for color flush over DDR
+reg [2:0]BGR_HIGH=0;
+reg [2:0]BGR_LOW=0;
+
 always @(posedge clk)begin
-    WindowDivider<=WindowDivider+1;       
-    if (BusEnable) begin            //STATE MACHINE FOR THE 
-                                    //DISPLAY AUTOMATON (Page 3)
+    WindowDivider<=WindowDivider+1;
+
+///////////////////////////////////////////////
+//BUS ACCESS FOR THE DISPLAY AUTOMATON (Page 3)
+///////////////////////////////////////////////
+    if (BusEnable) begin            
+                                    
         case (WindowDivider)        //Figure 5 / Page 6
             {2'b00}:begin           //CYCLE TYPE 1 (Page 19)
                 adr<=Transcode;
@@ -160,14 +178,15 @@ always @(posedge clk)begin
                 end
             {2'b11}:begin           //GEN detects _sg
                 _sg<=1;             //at this point
-                SliceVal<=busA[7:0];
                 DECODE_WINDOW_CODE;
                 end
         endcase
     end     //BusEnable==HIGH
-    
-    else begin                          //STATE MACHINE FOR THE 
-                                        //ACCESS AUTOMATON (Page 3 Column 2)
+
+///////////////////////////////////////////////
+//BUS ACCESS FOR THE ACCESS AUTOMATON (Page 3 Column 2)
+///////////////////////////////////////////////
+    else begin                          
         case (WindowDivider)            //Figure 7 / Page 7
             {2'b00}:begin
                 if (~_ve) begin         //Access pending?
@@ -201,13 +220,17 @@ always @(posedge clk)begin
                 end
         endcase
     end     //BusEnable==LOW
-        
+
+///////////////////////////////////////////////
+//FRAME TIMING (Page 18)
+///////////////////////////////////////////////        
     if (&WindowDivider)begin 
         if (TF==55)begin
             TF<=0;
             if ((~`R_50Hz && LineCounter==261)
                 ||LineCounter==311)
                 LineCounter<=0;
+                BlinkCounter<=BlinkCounter+1;
             else begin 
                 if (LineCounter==`Service_Row) Y<=Y0[4:0];
                 LineCounter<=LineCounter+1;
@@ -215,20 +238,37 @@ always @(posedge clk)begin
         end
         else TF<=TF+1;
     end //WindowDivider
-    
+
+///////////////////////////////////////////////
+//COLOR FLUSH
+///////////////////////////////////////////////        
+///////////////////////////////////////////////
+//FOR A DDR OUTPUT OR CHIP REPLACEMENT.
+//REPLACE FOR AN INTEGRATED FPGA DESIGN OR PLL DOUBLING CLOCK
+///////////////////////////////////////////////        
+    if (BusEnable) begin
+        SliceVal<={SliceVal[5:0],2'b00};
+        BGR_HIGH<=SliceVal[7]?C1:C0;
+        BGR_LOW<=SliceVal[6]?C1:C0;
+    end
+    else begin
+        BRG_HIGH<=0;
+        BRG_LOW<=0;
+    end
 end
 
 task INC_C;             //STATE DIAGRAM on PAGE 14
 begin
     if (X==39 || X==47 || X==55 || X==63) begin
         X=0;
+        BOXED=0;
+        CONCEALED=0;
+        UNDERLINE=0;
+        C0=0;           //X COLUMN 0 RESETS SOME ATTRIBUTES (Top of Page 20)
         if (Y==23) Y=0;
         else Y=Y+1;
     end
-    else begin
-        X=X+1;    
-        Y=Y;
-    end
+    else X=X+1;
 end
 endtask
 
@@ -274,13 +314,23 @@ endtask
 
 task DECODE_WINDOW_CODE;
 begin
-    if GEN_ALPHANUMERIC begin C1=AttrL[2:0];ATTR=AttrL[6:3];end
-    else if GEN_DELIMITER begin C1=AttrL[2:0];C0=AttrL[6:4];end     
-    else if EXT_ALPHANUMERIC begin C1=AttrL[2:0];ATTR=AttrL[6:3];end
-    else if GEN_SEPARATED_SG begin C1=AttrL[2:0];C0=AttrL[6:4];ATTR[]=AttrL[3];end
-    else if GEN_MOSAIC_SG begin C1=AttrL[2:0];C0=AttrL[6:4];ATTR[]=AttrL[3];end
-    else if ILLEGAL begin;end
-    else if EXT_SEMIGRAPHIC begin C1=AttrL[2:0];C0=AttrL[6:4];ATTR[]=AttrL[3];end
+    if `DELIMITER begin
+        C1=AttrL[2:0];
+        C0=AttrL[6:4];
+        end     
+    else if `ALPHANUMERIC begin
+        C1=AttrL[2:0];
+        ATTR=AttrL[6:3];
+        if (Y==9 & UNDERLINE) 
+        SliceVal<=busA[7:0];
+        end
+    else if `ILLEGAL begin
+        SliceVal=8'hFF;
+        end
+    else begin          //SEMIGRAPHIC
+        C1=AttrL[2:0];C0=AttrL[6:4];
+        `ATTR_STABLE=AttrL[3];
+        end
 end
 endtask
 
