@@ -228,9 +228,10 @@ always @(posedge clk)begin
         if (TF==55)begin
             TF<=0;
             if ((~`R_50Hz && LineCounter==261)
-                ||LineCounter==311)
+                ||LineCounter==311) begin
                 LineCounter<=0;
                 BlinkCounter<=BlinkCounter+1;
+                end
             else begin 
                 if (LineCounter==`Service_Row) Y<=Y0[4:0];
                 LineCounter<=LineCounter+1;
@@ -252,8 +253,8 @@ always @(posedge clk)begin
         BGR_LOW<=SliceVal[6]?C1:C0;
     end
     else begin
-        BRG_HIGH<=0;
-        BRG_LOW<=0;
+        BGR_HIGH<=0;
+        BGR_HIGH<=0;
     end
 end
 
@@ -318,11 +319,15 @@ begin
         C1=AttrL[2:0];
         C0=AttrL[6:4];
         end     
-    else if `ALPHANUMERIC begin
+    else if `ALPHANUMERIC begin     //Attributes on bottom of page 20
         C1=AttrL[2:0];
         ATTR=AttrL[6:3];
-        if (Y==9 & UNDERLINE) 
-        SliceVal<=busA[7:0];
+        SliceVal=((`ATTR_DWIDTH)?                   //Double Width
+            (X[0])?{{2{busA[7]}},{2{busA[6]}},{2{busA[5]}},{2{busA[4]}}}:
+                   {{2{busA[3]}},{2{busA[2]}},{2{busA[1]}},{2{busA[0]}}}:
+                   busA[7:0]) |
+                   (Y==9 & UNDERLINE) &              //Underline
+                   ~(`R_Blinking & `BLINK_ACTIVE);    //Blinking
         end
     else if `ILLEGAL begin
         SliceVal=8'hFF;
