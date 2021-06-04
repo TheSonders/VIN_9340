@@ -122,28 +122,41 @@ wire BusEnable=(`R_Display)?
 wire [9:0]Transcode=(Y[4] & Y[3])?
         {2'b11,X[5:3],2'b11,X[2:0]}:
         (X[5])?{2'b11,Y[2:0],Y[4:3],X[2:0]}:
-        {Y[4:0],X[4:0]};
+        {Y[4:0],X[4:0]};        
+//Coded address of the C Cursor positions
+wire [9:0]Transcode_C=(YC[4] & YC[3])?
+        {2'b11,XC[5:3],2'b11,XC[2:0]}:
+        (XC[5])?{2'b11,YC[2:0],YC[4:3],XC[2:0]}:
+        {YC[4:0],XC[4:0]};
         
-reg [7:0] R=1;      //<---------------DEBUG
-reg [7:0] M=0;
-reg [5:0] X=0;
-reg [4:0] Y=0;
-reg [5:0] Y0=0;
-reg [6:0] AttrL=0;    //Page 17
-reg [3:0] TypeL=0;
-reg [7:0] SliceVal=0;
-reg [2:0] C0=0;     //BGR Color for background
-reg [2:0] C1=0;     //BGR Color for foreground
-reg [3:0] ATTR=0;   //Attributes for custom char
-reg BOXED=0;
-reg CONCEALED=0;
-reg UNDERLINE=0;
+//Accesible registers (Page 25)
+reg [7:0] R=8'h41;      // Display and timing Register <------DEBUG
+reg [7:0] M=0;          // Access Mode Register
+//These both regs shape the Cursor C Register
+reg [5:0] XC=0;         // Horizontal Cursor Pos
+reg [4:0] YC=0;         // Vertical Cursor Pos
+reg [5:0] Y0=0;         // Origin Row + Zoom mode
+
+//Internal Counters
+reg [5:0] X=0;          // Horizontal Window Counter
+reg [4:0] Y=0;          // Vertical Window Counter
+reg [3:0] S=0;          // Slice Counter
 reg [5:0]BlinkCounter=0; //Frame counter to get about 0.5Hz
 `define BLINK_ACTIVE BlinkCounter[5]
-
 reg [1:0]WindowDivider=0;       //0 to 3
 reg [5:0]TF=0;                  //0 to 55 Total Windows per line
 reg [8:0]LineCounter=0;         //0 to 261 or 311
+
+//Internal Latches
+reg [6:0] AttrL=0;      //Page 17
+reg [3:0] TypeL=0;
+reg [7:0] SliceVal=0;   // Bitmap Shift register 
+reg [2:0] C0=0;         //BGR Color for background
+reg [2:0] C1=0;         //BGR Color for foreground
+reg [3:0] ATTR=0;       //Attributes for custom char
+reg BOXED=0;
+reg CONCEALED=0;
+reg UNDERLINE=0;
 reg c_t_copy=0;
 reg _ve_copy=1;
 
@@ -164,7 +177,8 @@ always @(posedge clk)begin
                 adr<=Transcode;
                 r_w<=1;
                 _sm<=0;
-                INC_C;
+                if (X==39) X<=0;
+                else X<=X+1;
                 end
             {2'b01}:begin           //Page memory detects _sm
                 _sm<=1;             //at this point
@@ -172,7 +186,7 @@ always @(posedge clk)begin
                 TypeL<={busB[7:5],busA[7]};
                 end             
             {2'b10}:begin           //CYCLE TYPE 2 (Page 19)       
-                adr[3:0]<=`M_Slice; //Check if GEN or EXTENSION
+                adr[3:0]<=S;        //Check if GEN or EXTENSION
                 adr[4]<=TypeL[3] & (TypeL[2] | TypeL[1]); //NOTA in page 19
                 _sg<=0;
                 end
@@ -227,14 +241,28 @@ always @(posedge clk)begin
     if (&WindowDivider)begin 
         if (TF==55)begin
             TF<=0;
+            X<=0;
+            BOXED=0;
+            CONCEALED=0;
+            UNDERLINE=0;
+            C0=0;           //X COLUMN 0 RESETS SOME ATTRIBUTES (Top of Page 20)
             if ((~`R_50Hz && LineCounter==261)
                 ||LineCounter==311) begin
                 LineCounter<=0;
                 BlinkCounter<=BlinkCounter+1;
                 end
             else begin 
-                if (LineCounter==`Service_Row) Y<=Y0[4:0];
                 LineCounter<=LineCounter+1;
+                if (LineCounter==`Service_Row) begin
+                    Y<=Y0[4:0];
+                    S<=0;
+                end
+                else begin
+                    //if (BusEnable)begin <---------Adjust incorrect counting
+                        if (S==9)begin S<=0;Y<=Y+1;end
+                        else S<=S+1;
+                    //end
+                end
             end
         end
         else TF<=TF+1;
@@ -260,16 +288,12 @@ end
 
 task INC_C;             //STATE DIAGRAM on PAGE 14
 begin
-    if (X==39 || X==47 || X==55 || X==63) begin
-        X=0;
-        BOXED=0;
-        CONCEALED=0;
-        UNDERLINE=0;
-        C0=0;           //X COLUMN 0 RESETS SOME ATTRIBUTES (Top of Page 20)
-        if (Y==23) Y=0;
-        else Y=Y+1;
+    if (XC==39 || XC==47 || XC==55 || XC==63) begin
+        XC=0;
+        if (YC==23) YC=0;
+        else YC=YC+1;
     end
-    else X=X+1;
+    else XC=XC+1;
 end
 endtask
 
@@ -291,13 +315,13 @@ task ACCESS_MODE;         //Table 3 page 24
 begin
     case (`M_Access)
     `AcMode_WriteMP:     begin          //CYCLE TYPE 5 (Page 19)
-                            adr=Transcode;r_w=0;_sm=0;_st=0;end 
+                            adr=Transcode_C;r_w=0;_sm=0;_st=0;end 
     `AcMode_ReadMP:      begin          //CYCLE TYPE 4 (Page 19)
-                            adr=Transcode;r_w=1;_sm=0;_st=0;end 
+                            adr=Transcode_C;r_w=1;_sm=0;_st=0;end 
     `AcMode_WriteMP_NI:  begin          //CYCLE TYPE 5 (Page 19)
-                            adr=Transcode;r_w=0;_sm=0;_st=0;end 
+                            adr=Transcode_C;r_w=0;_sm=0;_st=0;end 
     `AcMode_ReadMP_NI:   begin          //CYCLE TYPE 4 (Page 19)
-                            adr=Transcode;r_w=1;_sm=0;_st=0;end 
+                            adr=Transcode_C;r_w=1;_sm=0;_st=0;end 
     `AcMode_WriteSlice:  begin          //CYCLE TYPE 7 (Page 19)
                             adr[3:0]<=`M_Slice;r_w=0;_sg=0;_st=0;INC_NT;end 
     `AcMode_ReadSlice:   begin          //CYCLE TYPE 6 (Page 19)
