@@ -61,7 +61,7 @@
 `define ATTR_DWIDTH          ATTR[2]
 `define ATTR_REVERSE         ATTR[3]
 
-`define Service_Row     30  
+`define Service_Row     31  
 
 module VIN_9340(
     //Bus interface
@@ -157,8 +157,13 @@ reg [3:0] ATTR=0;       //Attributes for custom char
 reg BOXED=0;
 reg CONCEALED=0;
 reg UNDERLINE=0;
+reg ZOOM=0;
 reg c_t_copy=0;
 reg _ve_copy=1;
+reg HParity=0;          //Double Height order(Page 20)
+reg WParity=0;          //Double Width order
+reg DHeight=0;          //Double Height found in this Row
+reg DWidth=0;           //Double Width found in this Column
 
 //Register for color flush over DDR
 reg [2:0]BGR_HIGH=0;
@@ -177,16 +182,17 @@ always @(posedge clk)begin
                 adr<=Transcode;
                 r_w<=1;
                 _sm<=0;
-                if (X==39) X<=0;
-                else X<=X+1;
+                INC_X;
                 end
             {2'b01}:begin           //Page memory detects _sm
                 _sm<=1;             //at this point
                 AttrL<=busA[6:0];
                 TypeL<={busB[7:5],busA[7]};
                 end             
-            {2'b10}:begin           //CYCLE TYPE 2 (Page 19)       
-                adr[3:0]<=S;        //Check if GEN or EXTENSION
+            {2'b10}:begin           //CYCLE TYPE 2 (Page 19) 
+                if (`ALPHANUMERIC && `ATR_DHEIGHT) begin
+                end
+                else adr[3:0]<=S;        //Check if GEN or EXTENSION
                 adr[4]<=TypeL[3] & (TypeL[2] | TypeL[1]); //NOTA in page 19
                 _sg<=0;
                 end
@@ -241,31 +247,34 @@ always @(posedge clk)begin
     if (&WindowDivider)begin 
         if (TF==55)begin
             TF<=0;
+            DWidth<=0;
             X<=0;
-            BOXED=0;
-            CONCEALED=0;
-            UNDERLINE=0;
-            C0=0;           //X COLUMN 0 RESETS SOME ATTRIBUTES (Top of Page 20)
-            if ((~`R_50Hz && LineCounter==261)
+            BOXED<=0;
+            CONCEALED<=0;
+            UNDERLINE<=0;
+            C0<=0;         //X COLUMN 0 RESETS SOME ATTRIBUTES (Top of Page 20)
+            if ((~`R_50Hz && LineCounter==261)  //New Frame
                 ||LineCounter==311) begin
                 LineCounter<=0;
                 BlinkCounter<=BlinkCounter+1;
                 end
             else begin 
-                LineCounter<=LineCounter+1;
-                if (LineCounter==`Service_Row) begin
-                    Y<=Y0[4:0];
+                LineCounter<=LineCounter+1;     //New Screen Line
+                if ((`R_50Hz && LineCounter==38) || (~`R_50Hz && LineCounter==30)) begin
+                    Y<=`Service_Row;            //Service Row
+                    HParity<=0;                 //Restore double settings
+                    DHeight<=0; 
                     S<=0;
                 end
-                else begin
-                    //if (BusEnable)begin <---------Adjust incorrect counting
-                        if (S==9)begin S<=0;Y<=Y+1;end
-                        else S<=S+1;
-                    //end
+                else begin                    //Slice & Y increment
+                    if (~ZOOM || LineCounter[0] || Y==`Service_Row) INC_S;    
                 end
             end
         end
-        else TF<=TF+1;
+        else begin
+            DWidth<=0;
+            TF<=TF+1;
+        end 
     end //WindowDivider
 
 ///////////////////////////////////////////////
@@ -284,7 +293,41 @@ always @(posedge clk)begin
         BGR_HIGH<=0;
         BGR_HIGH<=0;
     end
+end  //always posedge clk
+
+task INC_X;             //INCREMENT X COLUMN
+begin
+    if (X==39) X=0;
+    else X=X+1;
+    if (DWidth)WParity=~WParity;
+    else WParity=0;
+    DWidth=0; 
 end
+endtask
+
+task INC_S;             //INCREMENT SLICE
+begin
+    if (S==9)begin      //New Row
+        S=0;
+        INC_Y;
+    end
+    else S=S+1;
+end
+endtask
+
+task INC_Y;             //INCREMENT Y ROW
+begin
+    if (DHeight)HParity=~HParity;
+    else HParity=0;
+    DHeight=0; 
+    if (Y==`Service_Row) begin
+        Y=Y0[4:0];
+        ZOOM=Y0[5];     // Zoom Mode (Top of page 15)
+    end
+    else if (Y==23) Y=0;
+    else Y=Y+1;
+end
+endtask
 
 task INC_C;             //STATE DIAGRAM on PAGE 14
 begin
