@@ -190,7 +190,9 @@ always @(posedge clk)begin
                 TypeL<={busB[7:5],busA[7]};
                 end             
             {2'b10}:begin           //CYCLE TYPE 2 (Page 19) 
-                if (`ALPHANUMERIC && `ATR_DHEIGHT) begin
+                if (`ALPHANUMERIC && `ATR_DHEIGHT) begin  //Slice reading
+                    if (HParity)adr[3:0]<=((S>>1)+5) & 4'hF;
+                    else adr[3:0]<=(S>>1)& 4'hF;
                 end
                 else adr[3:0]<=S;        //Check if GEN or EXTENSION
                 adr[4]<=TypeL[3] & (TypeL[2] | TypeL[1]); //NOTA in page 19
@@ -283,15 +285,15 @@ always @(posedge clk)begin
 ///////////////////////////////////////////////
 //FOR A DDR OUTPUT OR CHIP REPLACEMENT.
 //REPLACE FOR AN INTEGRATED FPGA DESIGN OR PLL DOUBLING CLOCK
-///////////////////////////////////////////////        
-    if (BusEnable) begin
-        SliceVal<={SliceVal[5:0],2'b00};
-        BGR_HIGH<=SliceVal[7]?C1:C0;
+///////////////////////////////////////////////  
+    if (WindowDivider!=2'b11) SliceVal<={SliceVal[5:0],2'b00};
+    if (BusEnable && (`R_Service || Y!=`Service_Row)) begin
+        BGR_HIGH<=SliceVal[7]?C1:C0;            // Service Row Visible?
         BGR_LOW<=SliceVal[6]?C1:C0;
     end
     else begin
         BGR_HIGH<=0;
-        BGR_HIGH<=0;
+        BGR_LOW<=0;
     end
 end  //always posedge clk
 
@@ -389,8 +391,8 @@ begin
     else if `ALPHANUMERIC begin     //Attributes on bottom of page 20
         C1=AttrL[2:0];
         ATTR=AttrL[6:3];
-        SliceVal=((`ATTR_DWIDTH)?                   //Double Width
-            (X[0])?{{2{busA[7]}},{2{busA[6]}},{2{busA[5]}},{2{busA[4]}}}:
+        SliceVal=((`ATR_DWIDTH)?                   //Double Width
+            (WParity)?{{2{busA[7]}},{2{busA[6]}},{2{busA[5]}},{2{busA[4]}}}:
                    {{2{busA[3]}},{2{busA[2]}},{2{busA[1]}},{2{busA[0]}}}:
                    busA[7:0]) |
                    (Y==9 & UNDERLINE) &              //Underline
