@@ -76,7 +76,7 @@ module VIN_9340(
     output wire r,g,b,      //Color signal
     output wire tt,         //Vertical sync
     output wire tl,         //horizontal sync
-    output wire i,          //Insert into extern video
+    output reg  i=0,        //Insert into extern video (transparent window)
     input wire  syt,        //Vertical sync input
     //Others
     input wire  clk,        //3.5MHz
@@ -154,10 +154,11 @@ reg [7:0] SliceVal=0;   // Bitmap Shift register
 reg [2:0] C0=0;         //BGR Color for background
 reg [2:0] C1=0;         //BGR Color for foreground
 reg [3:0] ATTR=0;       //Attributes for custom char
-reg BOXED=0;
-reg CONCEALED=0;
-reg UNDERLINE=0;
+reg BOXED=0;            //Serial attributes read...
+reg CONCEALED=0;        //by the GEN when a Delimitor...
+reg UNDERLINE=0;        //and put on the BUS A
 reg ZOOM=0;
+reg CURSOR_POS_MATCH=0;
 reg c_t_copy=0;
 reg _ve_copy=1;
 reg HParity=0;          //Double Height order(Page 20)
@@ -182,6 +183,7 @@ always @(posedge clk)begin
                 adr<=Transcode;
                 r_w<=1;
                 _sm<=0;
+                CURSOR_POS_MATCH<=(X==XC & Y==YC);
                 INC_X;
                 end
             {2'b01}:begin           //Page memory detects _sm
@@ -287,7 +289,8 @@ always @(posedge clk)begin
 //REPLACE FOR AN INTEGRATED FPGA DESIGN OR PLL DOUBLING CLOCK
 ///////////////////////////////////////////////  
     if (WindowDivider!=2'b11) SliceVal<={SliceVal[5:0],2'b00};
-    if (BusEnable && (`R_Service || Y!=`Service_Row)) begin
+    if (BusEnable && (`R_Service || Y!=`Service_Row)&&
+       ~(`R_Conceal & CONCEALED) && ~(`R_Boxing & ~BOXED))begin //Conceal and Boxing
         BGR_HIGH<=SliceVal[7]?C1:C0;            // Service Row Visible?
         BGR_LOW<=SliceVal[6]?C1:C0;
     end
@@ -295,6 +298,8 @@ always @(posedge clk)begin
         BGR_HIGH<=0;
         BGR_LOW<=0;
     end
+    if (`R_Boxing & ~BOXED) i<=0;            //Transparent window
+    else i<=1;
 end  //always posedge clk
 
 task INC_X;             //INCREMENT X COLUMN
@@ -384,26 +389,32 @@ endtask
 
 task DECODE_WINDOW_CODE;
 begin
-    if `DELIMITER begin
-        C1=AttrL[2:0];
+    if `DELIMITER begin             //Serial attributes for delimiters
+        C1=AttrL[2:0];              //are read by GEN(Bottom of page 17)
         C0=AttrL[6:4];
+        BOXED=busA[1];
+        CONCEALED=busA[0];
+        UNDERLINE=busA[2];
+        SliceVal=8'hFF & ~(CURSOR_POS_MATCH & (`R_Blinking & `BLINK_ACTIVE)); //Page 21
         end     
     else if `ALPHANUMERIC begin     //Attributes on bottom of page 20
         C1=AttrL[2:0];
         ATTR=AttrL[6:3];
         SliceVal=((`ATR_DWIDTH)?                   //Double Width
             (WParity)?{{2{busA[7]}},{2{busA[6]}},{2{busA[5]}},{2{busA[4]}}}:
-                   {{2{busA[3]}},{2{busA[2]}},{2{busA[1]}},{2{busA[0]}}}:
-                   busA[7:0]) |
-                   (Y==9 & UNDERLINE) &              //Underline
-                   ~(`R_Blinking & `BLINK_ACTIVE);    //Blinking
+            {{2{busA[3]}},{2{busA[2]}},{2{busA[1]}},{2{busA[0]}}}:
+            busA[7:0]) |
+            (S==9 & UNDERLINE) &                   //Underline
+            ~(CURSOR_POS_MATCH & (`R_Blinking & (`BLINK_ACTIVE ^`ATR_REVERSE)))  //Blinking
+            ^(`ATR_REVERSE);                        //Reverse video
         end
     else if `ILLEGAL begin
         SliceVal=8'hFF;
         end
     else begin          //SEMIGRAPHIC
         C1=AttrL[2:0];C0=AttrL[6:4];
-        `ATTR_STABLE=AttrL[3];
+        SliceVal=busA[7:0] &
+        ~(CURSOR_POS_MATCH & (`R_Blinking & `BLINK_ACTIVE) & `ATR_STABLE);  //Blinking            
         end
 end
 endtask
