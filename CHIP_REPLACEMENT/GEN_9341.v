@@ -88,6 +88,11 @@ assign d=(e & ~_cs & r_w)?(c_t)?{Busy,6'h00}:(b_a)?B:A:8'hZZ; //Top of page 13
 reg [7:0] A=0;
 reg [7:0] B=0;
 reg     Busy=0;
+reg [7:0] LatchA=0;
+reg [7:0] LatchB=0;
+reg [7:0]ROM[0:2560];  //<-Character ROM [256 bytes]*[10rows]
+
+initial $readmemh ("charset_ef9341.txt",ROM);
     
 always @(posedge e) begin
     if (~_cs) begin
@@ -95,10 +100,14 @@ always @(posedge e) begin
             if (b_a) B<=d;
             else A<=d;
         end
-        if (b_a)begin Busy<=1;ve<=0;end
+        if (b_a)begin Busy<=1;_ve<=0;end
     end
 end
 
-
+always @(negedge _sg) begin //Top of page 6 
+    if (r_wi) begin     //Read
+        LatchA<=ROM[adr];
+    end
+end
 
 endmodule
