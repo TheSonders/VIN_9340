@@ -74,7 +74,7 @@ module GEN_9341(
     input wire       b_a,
     input wire       c_t,
     //VIN interface
-    output wire       _ve,
+    output reg       _ve=1,
     inout wire  [7:0]busA,
     inout wire  [7:0]busB,
     input wire       r_wi,
@@ -82,10 +82,20 @@ module GEN_9341(
     input wire        _st,
     input wire        _sg,
     input wire   [3:0]adr);
+    
+assign d=(e & ~_cs & r_w)?(c_t)?{Busy,6'h00}:(b_a)?B:A:8'hZZ; //Top of page 13
 
+reg [7:0] A=0;
+reg [7:0] B=0;
+reg     Busy=0;
+    
 always @(posedge e) begin
-    if (r_w)begin
-        
+    if (~_cs) begin
+        if (~r_w)begin      //Top of page 13
+            if (b_a) B<=d;
+            else A<=d;
+        end
+        if (b_a)begin Busy<=1;ve<=0;end
     end
 end
 
