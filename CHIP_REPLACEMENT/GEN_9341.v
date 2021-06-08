@@ -83,13 +83,19 @@ module GEN_9341(
     input wire        _sg,
     input wire   [3:0]adr);
     
-assign d=(e & ~_cs & r_w)?(c_t)?{Busy,6'h00}:(b_a)?B:A:8'hZZ; //Top of page 13
+assign d=(e & ~_cs & r_w)?(c_t)?{Busy,6'h00}:(b_a)?TB:TA:8'hZZ; //Top of page 13
+assign busA=(~_sg & (Gen_Selected || Del_Selected))?OutLatch:8'hZZ; //Schematics on page 2
 
-reg [7:0] A=0;
-reg [7:0] B=0;
+reg [7:0] TA=0;
+reg [7:0] TB=0;
 reg     Busy=0;
-reg [7:0] LatchA=0;
-reg [7:0] LatchB=0;
+reg [7:0] OutLatch=0;
+reg Gen_Selected=0;
+reg Del_Selected=0;
+reg s=0;
+reg i=0;
+reg m=0;
+reg [11:0]CC=0;
 reg [7:0]ROM[0:2560];  //<-Character ROM [256 bytes]*[10rows]
 
 initial $readmemh ("charset_ef9341.txt",ROM);
@@ -97,16 +103,33 @@ initial $readmemh ("charset_ef9341.txt",ROM);
 always @(posedge e) begin
     if (~_cs) begin
         if (~r_w)begin      //Top of page 13
-            if (b_a) B<=d;
-            else A<=d;
+            if (b_a) TB<=d;
+            else TA<=d;
         end
         if (b_a)begin Busy<=1;_ve<=0;end
     end
 end
 
-always @(negedge _sg) begin //Top of page 6 
+//Cycle Type 1 
+always @(posedge _sm) begin //Figure 5 page 6 
     if (r_wi) begin     //Read
-        LatchA<=ROM[adr];
+        Gen_Selected<=(~busB[7]);
+        CC<={busA[7],busB[6:0]}*10;
+        if ({busB[7:5],busA[7]}==4'b1000) begin //Delimitor
+            s<=busB[2];
+            i<=busB[1];
+            m<=busB[0];
+            Del_Selected<=1;
+        end
+        else Del_Selected<=0;
+    end
+end
+
+
+always @(negedge _sg) begin //Figure 5 page 6 
+    if (r_wi) begin     //Read
+        if (Gen_Selected) OutLatch<=ROM[CC+adr];
+        else if (Del_Selected) OutLatch<={5'h00,s,i,m};
     end
 end
 
