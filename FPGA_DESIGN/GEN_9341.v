@@ -10,18 +10,6 @@
 // THOMSON EF9340-EF9341 Datasheet
 //////////////////////////////////////////////////////////////////////////////////
 
-// M register bits              Table 3 Page 24
-`define M_Access      M[7:5]
-`define M_Slice       M[3:0]
-
-// M Access mode                Table 3 Page 24
-`define AcMode_WriteMP      3'b000
-`define AcMode_ReadMP       3'b001
-`define AcMode_WriteMP_NI   3'b010
-`define AcMode_ReadMP_NI    3'b011
-`define AcMode_WriteSlice   3'b100
-`define AcMode_ReadSlice    3'b101
- 
 module GEN_9341(
     //Added clock input, ideally 14MHz as the VIN
     input wire      clk,
@@ -33,7 +21,7 @@ module GEN_9341(
     input wire       b_a,
     input wire       c_t,
     //VIN interface
-    output reg       _ve=1,
+    output wire       _ve,
     inout wire  [7:0]busA,
     inout wire  [7:0]busB,
     input wire       r_wi,
@@ -43,30 +31,31 @@ module GEN_9341(
     input wire   [3:0]adr);
     
 assign d=(e & ~_cs & r_w)?(c_t)?{Busy,6'h00}:(b_a)?TB:TA:8'hZZ; //Top of page 13
-assign busA=(~_sg & (Gen_Selected || Del_Selected))?OutLatch: //Cycle type 2
+assign busA=(r_w & ~_sg & (Gen_Selected || Del_Selected))?OutA: //Cycle TYPE 2,6
+            (~r_w & ~_st)? TA:                          //Cycle TYPE 3,5,7
             8'hZZ; //Schematics on page 2
-
-wire [7:0]wTC;
-
+assign busB=(~r_w & ~_st)? TB:                          //Cycle TYPE 3,5,7
+            8'hZZ;
+assign _ve=~Busy;
 
 //Accesible registers
 reg [7:0] TA=0;     //This both are the mailbox
 reg [7:0] TB=0;
 reg     Busy=0;     //Busy FF
-reg [7:0] OutLatch=0;
+reg [7:0] OutA=0;
 reg Gen_Selected=0;
 reg Del_Selected=0;
 reg s=0;
 reg i=0;
 reg m=0;
 
-//Latchs of previous inputs estates
+//Latchs of previous inputs
 reg prev_e=1;       //Rise detection of input e
 reg prev_sm=0;      //Fall detection of signal from VIN
-reg pprev_sm=0;     //Fall detection of signal from VIN
-reg prev_sg=0;      //The signal _st may be delayed (tAS on Page 7)...
-reg pprev_sg=0;     //Use of double latch to detect delayed _st
-reg prev_st=0;      
+reg prev_sg=0;      
+reg pprev_sm=0;     //The signal _st may be delayed (tAS on Page 7)...
+reg pprev_sg=0;     //Use of double latch to detect delayed _st     
+reg prev_st=0;
 
 reg [11:0]CC=0;
 reg [7:0]ROM[0:2560];  //<-Character ROM [256 bytes]*[10rows]
@@ -78,15 +67,17 @@ always @(posedge clk)begin
     prev_sm<=_sm;pprev_sm<=prev_sm;
     prev_sg<=_sg;pprev_sg<=prev_sg;
     prev_st<=_st;
-    if (~prev_e & e & ~_cs) begin          //CPU ACCESS
+    //CPU ACCESS
+    if (~prev_e & e & ~_cs) begin          
         case ({c_t,b_a,r_w})               //Table on top of page 13
             3'b000:begin TA<=d;end         //Reading accesses are multiplexed on assign
-            3'b010:begin TB<=d;Busy<=1;_ve<=0;end
-            3'b011:begin Busy<=1;_ve<=0;end//All the accesses on B causes set Busy
+            3'b010:begin TB<=d;Busy<=1;end
+            3'b011:begin Busy<=1;end//All the accesses on B causes set Busy
             3'b100:begin TA<=d;end
-            3'b110:begin TB<=d;Busy<=1;_ve<=0;end
+            3'b110:begin TB<=d;Busy<=1;end
         endcase
     end
+    //INTERNAL BUS ACCESS
     if (pprev_sm & ~prev_sm & ~_sm)begin   //Delayed low pulse on _sm
         if (r_wi) begin
             if (_st)begin                   //Cycle TYPE 1 
@@ -102,11 +93,22 @@ always @(posedge clk)begin
             end
             else begin                      //Cycle TYPE 4
                 TA<=busA;
-                TB<=BusB;
-                prev_st<=0; //Ignore fall on _st
+                TB<=busB;
             end
         end
     end
-end    
-
+    else if (pprev_sg & ~prev_sg & ~_sg)begin   //Delayed low pulse on _sg
+        if (r_wi) begin
+            if (_st)begin                   //Cycle TYPE 2 
+                if (Gen_Selected) OutA<=ROM[CC+adr];
+                else if (Del_Selected) OutA<={5'h00,s,i,m};
+            end
+            else begin                      //Cycle TYPE 6
+                TA<=busA;
+                TB<=busB;
+            end
+        end
+    end
+    else if (prev_st & _st & ~r_w) Busy<=0; //Cycle TYPE 3
+end   
 endmodule
