@@ -56,6 +56,7 @@ reg prev_sg=0;
 reg pprev_sm=0;     //The signal _st may be delayed (tAS on Page 7)...
 reg pprev_sg=0;     //Use of double latch to detect delayed _st     
 reg prev_st=0;
+reg pprev_st=0;
 
 reg [11:0]CC=0;
 reg [7:0]ROM[0:2560];  //<-Character ROM [256 bytes]*[10rows]
@@ -66,7 +67,7 @@ always @(posedge clk)begin
     prev_e<=e;
     prev_sm<=_sm;pprev_sm<=prev_sm;
     prev_sg<=_sg;pprev_sg<=prev_sg;
-    prev_st<=_st;
+    prev_st<=_st;pprev_st<=prev_st;
     //CPU ACCESS
     if (~prev_e & e & ~_cs) begin          
         case ({c_t,b_a,r_w})               //Table on top of page 13
@@ -109,6 +110,6 @@ always @(posedge clk)begin
             end
         end
     end
-    else if (prev_st & _st & ~r_w) Busy<=0; //Cycle TYPE 3
+    else if (pprev_st & ~prev_st & ~_st & ~r_w) Busy<=0; //Cycle TYPE 3
 end   
 endmodule
