@@ -89,29 +89,6 @@ module VIN_9340(
     input wire  _res        //Restart, enable at low pulse, latched
     );
 
-////////////////////////////////////////////////////////
-//Timing generator
-//Divides by 4 the input clock, it calls window timing (875KHz)
-//Then divides by 56 to get de HSync TL(15'625KHz)
-//This frec is divided by 262 or 312 to get VSync TT(Interpolate fields)
-//This line counter can be reset by a high to low on SYT (sampled at 12th window)
-////////////////////////////////////////////////////////
-//Display automaton
-//Controls bus during 40 windows/line and 210 or 250 lines/field
-//Two read cycles for visible window period:
-//First: puts the window counter on the 10 bits bus address
-//       gets 11 bits, 7 for the attribute plus 4 for the char type
-//       increments window counter
-//Second:puts on the address bus the number of slice (0 to 9)
-//       gets the 8 bits dots for the current line
-//       flush the RGBI signals for each dot
-////////////////////////////////////////////////////////
-//Access automaton
-//This automaton access the bus while is not used by the Display Auto.
-//Uses the signal C/_T to find out if there's a command or transfer pending
-//Reads TA and TB registers from the GEN (mailbox)
-
-
 //Horizontal sync wire
 assign tl=(TL_Disabled)||                   // If low _res is latched, disable TL
           (`R_Monitor)?(TF<12 || TF>51)?1:0://16 pulses high, remains low
