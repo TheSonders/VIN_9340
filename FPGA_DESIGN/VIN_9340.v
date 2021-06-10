@@ -175,19 +175,19 @@ reg syt_copy=0;         //Latch last syt state to detect lo edge
 reg syt_valid=0;        //Resets line counter at the end of custom
 reg TL_Disabled=0;      //Disable TL output (sets to high) when _res is low
 
-//ODDR COLOR FLUSH
-//Replace instances for other FPGAs
-//Register for color flush over DDR
+reg prescaler=0;   //14MHz clock divider
+reg doublescan=0;
+
+//COLOR FLUSH
+//For a 14MHz clock
 reg [2:0]BGR_HIGH=0;
-reg [2:0]BGR_LOW=0;
-ODDR2 #(.DDR_ALIGNMENT("NONE"),.INIT(0),.SRTYPE("SYNC")
-   ) RED   (.Q(r),.C0(clk),.C1(!clk),.CE(1),.D0(BGR_HIGH[0]),.D1(BGR_LOW[0]),.R(0),.S(0));
-ODDR2 #(.DDR_ALIGNMENT("NONE"),.INIT(0),.SRTYPE("SYNC")
-   ) GREEN (.Q(g),.C0(clk),.C1(!clk),.CE(1),.D0(BGR_HIGH[1]),.D1(BGR_LOW[1]),.R(0),.S(0));
-ODDR2 #(.DDR_ALIGNMENT("NONE"),.INIT(0),.SRTYPE("SYNC")
-   ) BLUE  (.Q(b),.C0(clk),.C1(!clk),.CE(1),.D0(BGR_HIGH[2]),.D1(BGR_LOW[2]),.R(0),.S(0));
+assign r=BGR_HIGH[0];
+assign g=BGR_HIGH[1];
+assign b=BGR_HIGH[2];
 
 always @(posedge clk)begin
+prescaler<=prescaler+1;
+if (~prescaler) begin        //Repeat the display automaton twice per line
     WindowDivider<=WindowDivider+1;
     if (~_res)TL_Disabled<=1; // If low sets TL to high until R is loaded again
     _ve_copy<=_ve;
@@ -229,10 +229,11 @@ always @(posedge clk)begin
                 end
         endcase
     end     //VisibleLine==HIGH
-
+end // Twice per line
 ///////////////////////////////////////////////
 //BUS ACCESS FOR THE ACCESS AUTOMATON (Page 3 Column 2)
 ///////////////////////////////////////////////
+if (~doublescan) begin     //Repeat the access automaton only once per line
     if (~BusEnable)begin                          
         case (WindowDivider)            //Figure 7 / Page 7
             {2'b00}:begin
@@ -267,10 +268,11 @@ always @(posedge clk)begin
                 end
         endcase
     end     //BusEnable==LOW
-
+end     //Repeat the access automaton only once per line
 ///////////////////////////////////////////////
 //FRAME TIMING (Page 18)
-///////////////////////////////////////////////        
+/////////////////////////////////////////////// 
+if (~prescaler) begin        //Repeat the frame timing twice per line       
     if (&WindowDivider)begin 
         if (TF==55)begin
             TF<=0;
@@ -280,6 +282,8 @@ always @(posedge clk)begin
             CONCEALED<=0;
             UNDERLINE<=0;
             C0<=0;         //X COLUMN 0 RESETS SOME ATTRIBUTES (Top of Page 20)
+            doublescan<=~doublescan;
+            if (doublescan) begin //This part every two lines
             if ((~`R_50Hz && LineCounter==261)  //New Frame
                 ||LineCounter==311
                 ||syt_valid) begin
@@ -299,29 +303,24 @@ always @(posedge clk)begin
                     if (~ZOOM || LineCounter[0] || Y==`Service_Row) INC_S;    
                 end
             end
+            end //This part every two lines
         end
         else begin
             DWidth<=0;
             TF<=TF+1;
         end 
     end //WindowDivider
-
+end        //Repeat the frame timing twice per line       
 ///////////////////////////////////////////////
-//COLOR FLUSH
+//COLOR FLUSH at 14MHz
 ///////////////////////////////////////////////        
-///////////////////////////////////////////////
-//FOR A DDR OUTPUT OR CHIP REPLACEMENT.
-//REPLACE FOR AN INTEGRATED FPGA DESIGN OR PLL DOUBLING CLOCK
-///////////////////////////////////////////////  
-    if (WindowDivider!=2'b11) SliceVal<={SliceVal[5:0],2'b00};
+    if ({WindowDivider,prescaler}!=3'b110) SliceVal<={SliceVal[6:0],1'b00};
     if (VisibleLine && (`R_Service || Y!=`Service_Row)&&
        ~(`R_Conceal & CONCEALED) && ~(`R_Boxing & ~BOXED))begin //Conceal and Boxing
         BGR_HIGH<=SliceVal[7]?C1:C0;            // Service Row Visible?
-        BGR_LOW<=SliceVal[6]?C1:C0;
     end
     else begin
         BGR_HIGH<=0;
-        BGR_LOW<=0;
     end
     if (`R_Boxing & ~BOXED) i<=0;            //Transparent window
     else i<=1;
