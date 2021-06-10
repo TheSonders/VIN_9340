@@ -160,10 +160,11 @@ reg [3:0] ATTR=0;       //Attributes for custom char
 reg BOXED=0;            //Serial attributes read...
 reg CONCEALED=0;        //by the GEN when a Delimitor...
 reg UNDERLINE=0;        //and put on the BUS A
-reg ZOOM=0;
+reg ZOOM=0;             //Y[4] copied on Service Row
 reg CURSOR_POS_MATCH=0;
-reg c_t_copy=0;
-reg _ve_copy=1;
+reg command_pending=0;  //Captures c_t on _ve fall
+reg _ve_copy=0;         //Used to detect fall edge
+reg mailbox_full=0;     //Used by the state machine
 reg HParity=0;          //Double Height order(Page 20)
 reg WParity=0;          //Double Width order
 reg DHeight=0;          //Double Height found in this Row
@@ -187,7 +188,8 @@ ODDR2 #(.DDR_ALIGNMENT("NONE"),.INIT(0),.SRTYPE("SYNC")
 always @(posedge clk)begin
     WindowDivider<=WindowDivider+1;
     if (~_res)TL_Disabled<=1; // If low sets TL to high until R is loaded again
-
+    _ve_copy<=_ve;
+    if (_ve_copy & ~_ve)command_pending<=c_t; //Captures c_t on low edge of _ve 
 ///////////////////////////////////////////////
 //BUS ACCESS FOR THE DISPLAY AUTOMATON (Page 3)
 ///////////////////////////////////////////////
@@ -233,9 +235,8 @@ always @(posedge clk)begin
         case (WindowDivider)            //Figure 7 / Page 7
             {2'b00}:begin
                 if (~_ve) begin         //Access pending?
-                    c_t_copy<=c_t;      //Reading will reset the busy FF
-                    _ve_copy<=_ve;      //Capture a copy of C/T and _VE
-                    if (c_t) begin      //CYCLE TYPE 3 (Page 19)
+                    mailbox_full<=1;    //Reading will reset the busy FF
+                    if (command_pending) begin  //CYCLE TYPE 3 (Page 19)
                         _st<=0;
                         r_w<=0;
                     end
@@ -245,8 +246,8 @@ always @(posedge clk)begin
             {2'b01}:begin               //WAIT
                 end             
             {2'b10}:begin
-                if (~_ve_copy) begin
-                    if (c_t_copy) begin
+                if (mailbox_full) begin
+                    if (command_pending) begin
                         DECODE_COMMAND;
                     end
                     else begin
@@ -256,7 +257,8 @@ always @(posedge clk)begin
                 end
                 end
             {2'b11}:begin               //RESTORE BUS AND COPY     
-                    _ve_copy<=1;
+                    mailbox_full<=0;
+                    command_pending<=0;
                     _st<=1;
                     _sm<=1;
                     _sg<=1;
