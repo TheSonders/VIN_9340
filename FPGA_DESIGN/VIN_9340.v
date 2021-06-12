@@ -57,12 +57,6 @@
 `define COM_LoadR       3'b101
 `define COM_LoadY0      3'b110
 
-//Attribute bits for ATTR
-`define ATTR_STABLE          ATTR[0]
-`define ATTR_DHEIGHT         ATTR[1]
-`define ATTR_DWIDTH          ATTR[2]
-`define ATTR_REVERSE         ATTR[3]
-
 //Others
 `define Service_Row         31
 `define syt_Sample_Window   11
@@ -73,9 +67,9 @@ module VIN_9340(
     input wire  [7:0]busB,  //[4:0]not used
     output reg  [9:0]adr=0,
     output reg  r_w=1,
-    output reg  _sm=1,      //Page memory strobe
-    output reg  _sg=1,      //Char gen strobe
-    output reg  _st=1,      //Mailbox strobe
+    output reg  sm_n=1,      //Page memory strobe
+    output reg  sg_n=1,      //Char gen strobe
+    output reg  st_n=1,      //Mailbox strobe
     //Video interface
     output wire r,g,b,      //Color signal
     output wire tt,         //Vertical sync
@@ -84,13 +78,13 @@ module VIN_9340(
     input wire  syt,        //Vertical sync input (conect to GND if not used)
     //Others
     input wire  clk,        //14MHz
-    input wire  _ve,        //Vin Select (activated by GEN if command)
+    input wire  ve_n,        //Vin Select (activated by GEN if command)
     input wire  c_t,        //Command/data (high by GEN if command)
-    input wire  _res        //Restart, enable at low pulse, latched
+    input wire  res_n        //Restart, enable at low pulse, latched
     );
 
 //Horizontal sync wire
-assign tl=(TL_Disabled)||                   // If low _res is latched, disable TL
+assign tl=(TL_Disabled)||                   // If low res_n is latched, disable TL
           (`R_Monitor)?(TF<12 || TF>51)?1:0://16 pulses high, remains low
           (TF<4)?0:1;                       //4 pulses low, remains high    
 //Vertical sync wire
@@ -135,14 +129,13 @@ reg [3:0] TypeL=0;
 reg [7:0] SliceVal=0;   // Bitmap Shift register 
 reg [2:0] C0=0;         //BGR Color for background
 reg [2:0] C1=0;         //BGR Color for foreground
-reg [3:0] ATTR=0;       //Attributes for custom char
 reg BOXED=0;            //Serial attributes read...
 reg CONCEALED=0;        //by the GEN when a Delimitor...
 reg UNDERLINE=0;        //and put on the BUS A
 reg ZOOM=0;             //Y[4] copied on Service Row
 reg CURSOR_POS_MATCH=0;
-reg command_pending=0;  //Captures c_t on _ve fall
-reg _ve_copy=0;         //Used to detect fall edge
+reg command_pending=0;  //Captures c_t on ve_n fall
+reg ve_n_copy=0;         //Used to detect fall edge
 reg mailbox_full=0;     //Used by the state machine
 reg HParity=0;          //Double Height order(Page 20)
 reg WParity=0;          //Double Width order
@@ -150,7 +143,7 @@ reg DHeight=0;          //Double Height found in this Row
 reg DWidth=0;           //Double Width found in this Column
 reg syt_copy=0;         //Latch last syt state to detect lo edge
 reg syt_valid=0;        //Resets line counter at the end of custom
-reg TL_Disabled=0;      //Disable TL output (sets to high) when _res is low
+reg TL_Disabled=0;      //Disable TL output (sets to high) when res_n is low
 
 reg prescaler=0;   //14MHz clock divider
 reg doublescan=0;
@@ -163,12 +156,12 @@ assign g=BGR_HIGH[1];
 assign b=BGR_HIGH[2];
 
 always @(posedge clk)begin
-prescaler<=prescaler+1;
+prescaler<=~prescaler;
 if (~prescaler) begin        //Repeat the display automaton twice per line
     WindowDivider<=WindowDivider+1;
-    if (~_res)TL_Disabled<=1; // If low sets TL to high until R is loaded again
-    _ve_copy<=_ve;
-    if (_ve_copy & ~_ve)command_pending<=c_t; //Captures c_t on low edge of _ve 
+    if (~res_n)TL_Disabled<=1; // If low sets TL to high until R is loaded again
+    ve_n_copy<=ve_n;
+    if (ve_n_copy & ~ve_n)command_pending<=c_t; //Captures c_t on low edge of ve_n 
 ///////////////////////////////////////////////
 //BUS ACCESS FOR THE DISPLAY AUTOMATON (Page 3)
 ///////////////////////////////////////////////
@@ -178,30 +171,30 @@ if (~prescaler) begin        //Repeat the display automaton twice per line
             {2'b00}:begin           //CYCLE TYPE 1 (Page 19)
                 adr<=Transcode;
                 r_w<=1;
-                _sm<=0;             //At 12th window sample SYT
+                sm_n<=0;             //At 12th window sample SYT
                 if (Y==`syt_Sample_Window)begin
                     syt_copy<=syt;
                     if (~syt & syt_copy) syt_valid<=1; 
                 end
-                CURSOR_POS_MATCH<=(X==XC & Y==YC);
+                CURSOR_POS_MATCH<=(X==XC & Y==YC & `R_Cursor==1);
                 INC_X;
                 end
-            {2'b01}:begin           //Page memory detects _sm
-                _sm<=1;             //at this point
+            {2'b01}:begin           //Page memory detects sm_n
+                sm_n<=1;             //at this point
                 AttrL<=busA[6:0];
                 TypeL<={busB[7:5],busA[7]};
                 end             
             {2'b10}:begin           //CYCLE TYPE 2 (Page 19) 
                 if (`ALPHANUMERIC && `ATR_DHEIGHT) begin  //Slice reading
-                    if (HParity)adr[3:0]<=((S>>1)+5) & 4'hF;
+                    if (HParity)adr[3:0]<=((S>>1)+4'h5) & 4'hF;
                     else adr[3:0]<=(S>>1)& 4'hF;
                 end
                 else adr[3:0]<=S;        //Check if GEN or EXTENSION
                 adr[4]<=TypeL[3] & (TypeL[2] | TypeL[1]); //NOTA in page 19
-                _sg<=0;
+                sg_n<=0;
                 end
-            {2'b11}:begin           //GEN detects _sg
-                _sg<=1;             //at this point
+            {2'b11}:begin           //GEN detects sg_n
+                sg_n<=1;             //at this point
                 DECODE_WINDOW_CODE;
                 end
         endcase
@@ -214,10 +207,10 @@ if (~doublescan) begin     //Repeat the access automaton only once per line
     if (~BusEnable)begin                          
         case (WindowDivider)            //Figure 7 / Page 7
             {2'b00}:begin
-                if (~_ve) begin         //Access pending?
+                if (~ve_n) begin         //Access pending?
                     mailbox_full<=1;    //Reading will reset the busy FF
                     if (command_pending) begin  //CYCLE TYPE 3 (Page 19)
-                        _st<=0;
+                        st_n<=0;
                         r_w<=0;
                     end
                     else ACCESS_MODE;
@@ -239,9 +232,9 @@ if (~doublescan) begin     //Repeat the access automaton only once per line
             {2'b11}:begin               //RESTORE BUS AND COPY     
                     mailbox_full<=0;
                     command_pending<=0;
-                    _st<=1;
-                    _sm<=1;
-                    _sg<=1;
+                    st_n<=1;
+                    sm_n<=1;
+                    sg_n<=1;
                 end
         endcase
     end     //BusEnable==LOW
@@ -283,7 +276,6 @@ if (~prescaler) begin        //Repeat the frame timing twice per line
             end //This part every two lines
         end
         else begin
-            DWidth<=0;
             TF<=TF+1;
         end 
     end //WindowDivider
@@ -305,59 +297,59 @@ end  //always posedge clk
 
 task INC_X;             //INCREMENT X COLUMN
 begin
-    if (X==39) X=0;
-    else X=X+1;
-    if (DWidth)WParity=~WParity;
-    else WParity=0;
-    DWidth=0; 
+    if (X==39) X<=0;
+    else X<=X+1;
+    if (DWidth) WParity<=~WParity;
+    else WParity<=0;
+    DWidth<=0;
 end
 endtask
 
 task INC_S;             //INCREMENT SLICE
 begin
     if (S==9)begin      //New Row
-        S=0;
+        S<=0;
         INC_Y;
     end
-    else S=S+1;
+    else S<=S+1;
 end
 endtask
 
 task INC_Y;             //INCREMENT Y ROW
 begin
-    if (DHeight)HParity=~HParity;
-    else HParity=0;
-    DHeight=0; 
+    if (DHeight)HParity<=~HParity;
+    else HParity<=0;
+    DHeight<=0; 
     if (Y==`Service_Row) begin
-        Y=Y0[4:0];
-        ZOOM=Y0[5];     // Zoom Mode (Top of page 15)
+        Y<=Y0[4:0];
+        ZOOM<=Y0[5];     // Zoom Mode (Top of page 15)
     end
-    else if (Y==23) Y=0;
-    else Y=Y+1;
+    else if (Y==23) Y<=0;
+    else Y<=Y+1;
 end
 endtask
 
 task INC_C;             //STATE DIAGRAM on PAGE 14
 begin
     if (XC==39 || XC==47 || XC==55 || XC==63) begin
-        XC=0;
-        if (YC==23) YC=0;
-        else YC=YC+1;
+        XC<=0;
+        if (YC==23) YC<=0;
+        else YC<=YC+1;
     end
-    else XC=XC+1;
+    else XC<=XC+1;
 end
 endtask
 
 task DECODE_COMMAND;      //Table 2 page 24
 begin
     case (busB[7:5])
-    `COM_BeginRow:  begin X=0;Y=busA[4:0];end
-    `COM_LoadY:     begin Y=busA[4:0];end
-    `COM_LoadX:     begin X=busA[5:0];end
+    `COM_BeginRow:  begin X<=0;Y<=busA[4:0];end
+    `COM_LoadY:     begin Y<=busA[4:0];end
+    `COM_LoadX:     begin X<=busA[5:0];end
     `COM_IncC:      begin INC_C;end
-    `COM_LoadM:     begin M=busA;end
-    `COM_LoadR:     begin R=busA;TL_Disabled<=0;end //Writing R restores _res (page 10)
-    `COM_LoadY0:    begin Y0=busA[5:0];end
+    `COM_LoadM:     begin M<=busA;end
+    `COM_LoadR:     begin R<=busA;TL_Disabled<=0;end //Writing R restores res_n (page 10)
+    `COM_LoadY0:    begin Y0<=busA[5:0];end
     endcase
 end
 endtask
@@ -366,42 +358,42 @@ task ACCESS_MODE;         //Table 3 page 24
 begin
     case (`M_Access)
     `AcMode_WriteMP:     begin          //CYCLE TYPE 5 (Page 19)
-                            adr=Transcode_C;r_w=0;_sm=0;_st=0;end 
+                            adr<=Transcode_C;r_w<=0;sm_n<=0;st_n<=0;end 
     `AcMode_ReadMP:      begin          //CYCLE TYPE 4 (Page 19)
-                            adr=Transcode_C;r_w=1;_sm=0;_st=0;end 
+                            adr<=Transcode_C;r_w<=1;sm_n<=0;st_n<=0;end 
     `AcMode_WriteMP_NI:  begin          //CYCLE TYPE 5 (Page 19)
-                            adr=Transcode_C;r_w=0;_sm=0;_st=0;end 
+                            adr<=Transcode_C;r_w<=0;sm_n<=0;st_n<=0;end 
     `AcMode_ReadMP_NI:   begin          //CYCLE TYPE 4 (Page 19)
-                            adr=Transcode_C;r_w=1;_sm=0;_st=0;end 
+                            adr<=Transcode_C;r_w<=1;sm_n<=0;st_n<=0;end 
     `AcMode_WriteSlice:  begin          //CYCLE TYPE 7 (Page 19)
-                            adr[3:0]<=`M_Slice;r_w=0;_sg=0;_st=0;INC_NT;end 
+                            adr[3:0]<=`M_Slice;r_w<=0;sg_n<=0;st_n<=0;INC_NT;end 
     `AcMode_ReadSlice:   begin          //CYCLE TYPE 6 (Page 19)
-                            adr[3:0]<=`M_Slice;r_w=1;_sg=0;_st=0;INC_NT;end 
+                            adr[3:0]<=`M_Slice;r_w<=1;sg_n<=0;st_n<=0;INC_NT;end 
     endcase
 end
 endtask
 
 task INC_NT;
 begin
-    if (`M_Slice==9) `M_Slice=0;
-    else `M_Slice=`M_Slice+1;
+    if (`M_Slice==9) `M_Slice<=0;
+    else `M_Slice<=`M_Slice+1;
 end
 endtask
 
 task DECODE_WINDOW_CODE;
 begin
     if `DELIMITER begin             //Serial attributes for delimiters
-        C1=AttrL[2:0];              //are read by GEN(Bottom of page 17)
-        C0=AttrL[6:4];
-        BOXED=busA[1];
-        CONCEALED=busA[0];
-        UNDERLINE=busA[2];
-        SliceVal=8'hFF & ~(CURSOR_POS_MATCH & (`R_Blinking & `BLINK_ACTIVE)); //Page 21
+        C1<=AttrL[2:0];              //are read by GEN(Bottom of page 17)
+        C0<=AttrL[6:4];
+        BOXED<=busA[1];
+        CONCEALED<=busA[0];
+        UNDERLINE<=busA[2];
+        SliceVal<=8'hFF & ~(CURSOR_POS_MATCH & (`R_Blinking & `BLINK_ACTIVE)); //Page 21
         end     
     else if `ALPHANUMERIC begin     //Attributes on bottom of page 20
-        C1=AttrL[2:0];
-        ATTR=AttrL[6:3];
-        SliceVal=((`ATR_DWIDTH)?                   //Double Width
+        C1<=AttrL[2:0];
+        if (`ATR_DWIDTH)DWidth<=1;
+        SliceVal<=((`ATR_DWIDTH)?                   //Double Width
             (WParity)?{{2{busA[7]}},{2{busA[6]}},{2{busA[5]}},{2{busA[4]}}}:
             {{2{busA[3]}},{2{busA[2]}},{2{busA[1]}},{2{busA[0]}}}:
             busA[7:0]) |
@@ -410,11 +402,11 @@ begin
             ^(`ATR_REVERSE);                        //Reverse video
         end
     else if `ILLEGAL begin
-        SliceVal=8'hFF;
+        SliceVal<=8'hFF;
         end
     else begin          //SEMIGRAPHIC
-        C1=AttrL[2:0];C0=AttrL[6:4];
-        SliceVal=busA[7:0] &
+        C1<=AttrL[2:0];C0<=AttrL[6:4];
+        SliceVal<=busA[7:0] &
         ~(CURSOR_POS_MATCH & (`R_Blinking & `BLINK_ACTIVE) & `ATR_STABLE);  //Blinking            
         end
 end
