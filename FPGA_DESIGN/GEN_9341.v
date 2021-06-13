@@ -31,10 +31,10 @@ module GEN_9341(
     input wire   [3:0]adr);
     
 assign d=(e & ~cs_n & r_w)?(c_t)?{Busy,6'h00}:(b_a)?TB:TA:8'hZZ; //Top of page 13
-assign busA=(r_w & ~sg_n & (Gen_Selected || Del_Selected))?OutA: //Cycle TYPE 2,6
-            (~r_w & ~st_n)? TA:                          //Cycle TYPE 3,5,7
+assign busA=(r_wi & ~sg_n & (Gen_Selected || Del_Selected))?OutA: //Cycle TYPE 2,6
+            (~r_wi & ~st_n)? TA:                          //Cycle TYPE 3,5,7
             8'hZZ; //Schematics on page 2
-assign busB=(~r_w & ~st_n)? TB:                          //Cycle TYPE 3,5,7
+assign busB=(~r_wi & ~st_n)? TB:                          //Cycle TYPE 3,5,7
             8'hZZ;
 assign ve_n=~Busy;
 
