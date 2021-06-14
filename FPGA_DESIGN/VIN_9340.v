@@ -1,4 +1,5 @@
 `timescale 1ns / 1ps
+`default_nettype none
 //////////////////////////////////////////////////////////////////////////////////
 // EF9340 VIN VideoPac 
 // Antonio Sánchez (@TheSonders)
@@ -79,7 +80,7 @@ module VIN_9340(
     //Others
     input wire  clk,        //14MHz
     input wire  ve_n,        //Vin Select (activated by GEN if command)
-    input wire  c_t,        //Command/data (high by GEN if command)
+    input wire  c_t,        //Command/data (high by CPU if command)
     input wire  res_n        //Restart, enable at low pulse, latched
     );
 
@@ -231,7 +232,7 @@ if (~doublescan) begin     //Repeat the access automaton only once per line
                 end
             {2'b11}:begin               //RESTORE BUS AND COPY     
                     mailbox_full<=0;
-                    command_pending<=0;
+                    if (ve_n)command_pending<=0;
                     st_n<=1;
                     sm_n<=1;
                     sg_n<=1;
@@ -265,8 +266,6 @@ if (~prescaler) begin        //Repeat the frame timing twice per line
                 LineCounter<=LineCounter+1;     //New Screen Line
                 if ((`R_50Hz && LineCounter==38) || (~`R_50Hz && LineCounter==30)) begin
                     Y<=`Service_Row;            //Service Row
-                    HParity<=0;                 //Restore double settings
-                    DHeight<=0; 
                     S<=0;
                 end
                 else begin                    //Slice & Y increment
@@ -393,6 +392,7 @@ begin
     else if `ALPHANUMERIC begin     //Attributes on bottom of page 20
         C1<=AttrL[2:0];
         if (`ATR_DWIDTH)DWidth<=1;
+        if (`ATR_DHEIGHT)DHeight<=1;
         SliceVal<=((`ATR_DWIDTH)?                   //Double Width
             (WParity)?{{2{busA[7]}},{2{busA[6]}},{2{busA[5]}},{2{busA[4]}}}:
             {{2{busA[3]}},{2{busA[2]}},{2{busA[1]}},{2{busA[0]}}}:
@@ -411,5 +411,4 @@ begin
         end
 end
 endtask
-
 endmodule
