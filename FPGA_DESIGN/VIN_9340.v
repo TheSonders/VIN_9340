@@ -393,13 +393,13 @@ begin
         C1<=AttrL[2:0];
         if (`ATR_DWIDTH)DWidth<=1;
         if (`ATR_DHEIGHT)DHeight<=1;
-        SliceVal<=((`ATR_DWIDTH)?                   //Double Width
+        SliceVal<=(((((`ATR_DWIDTH)?                //Double Width
             (WParity)?{{2{busA[7]}},{2{busA[6]}},{2{busA[5]}},{2{busA[4]}}}:
             {{2{busA[3]}},{2{busA[2]}},{2{busA[1]}},{2{busA[0]}}}:
             busA[7:0]) |
-            (S==9 & UNDERLINE) &                   //Underline
-            ~(CURSOR_POS_MATCH & (`R_Blinking & (`BLINK_ACTIVE ^`ATR_REVERSE)))  //Blinking
-            ^(`ATR_REVERSE);                        //Reverse video
+            (S==9 & UNDERLINE)) &                   //Underline
+            ~(CURSOR_POS_MATCH & (`R_Blinking & (`BLINK_ACTIVE ^`ATR_REVERSE))))  //Blinking
+            ^({8{`ATR_REVERSE}}));                  //Reverse video                        //Reverse video
         end
     else if `ILLEGAL begin
         SliceVal<=8'hFF;
