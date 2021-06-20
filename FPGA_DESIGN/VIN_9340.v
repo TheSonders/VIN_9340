@@ -195,7 +195,7 @@ if (~prescaler) begin        //Repeat the display automaton twice per line
                 sg_n<=0;
                 end
             {2'b11}:begin           //GEN detects sg_n
-                sg_n<=1;             //at this point
+                sg_n<=1;            //at this point
                 DECODE_WINDOW_CODE;
                 end
         endcase
@@ -394,10 +394,10 @@ begin
         if (`ATR_DWIDTH)DWidth<=1;
         if (`ATR_DHEIGHT)DHeight<=1;
         SliceVal<=(((((`ATR_DWIDTH)?                //Double Width
-            (WParity)?{{2{busA[7]}},{2{busA[6]}},{2{busA[5]}},{2{busA[4]}}}:
+            (~WParity)?{{2{busA[7]}},{2{busA[6]}},{2{busA[5]}},{2{busA[4]}}}:
             {{2{busA[3]}},{2{busA[2]}},{2{busA[1]}},{2{busA[0]}}}:
             busA[7:0]) |
-            (S==9 & UNDERLINE)) &                   //Underline
+            ({8{(S==9 & UNDERLINE)}})) &                   //Underline
             ~(CURSOR_POS_MATCH & (`R_Blinking & (`BLINK_ACTIVE ^`ATR_REVERSE))))  //Blinking
             ^({8{`ATR_REVERSE}}));                  //Reverse video                        //Reverse video
         end
