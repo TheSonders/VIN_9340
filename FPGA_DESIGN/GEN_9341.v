@@ -1,4 +1,5 @@
 `timescale 1ns / 1ps
+`default_nettype none
 //////////////////////////////////////////////////////////////////////////////////
 // EF9341 GEN VideoPac 
 // Antonio Sánchez (@TheSonders)
@@ -30,16 +31,20 @@ module GEN_9341(
     input wire       sg_n,
     input wire   [3:0]adr);
     
-assign d=(e & ~cs_n & r_w)?(c_t)?{Busy,6'h00}:(b_a)?TB:TA:8'hZZ; //Top of page 13
-assign busA=(r_wi & ~sg_n & (Gen_Selected || Del_Selected))?OutA: //Cycle TYPE 2,6
+//REPLACE for a dual bus
+//assign d=(e & ~cs_n & r_w)?(c_t)?{Busy,6'h00}:(b_a)?TB:TA:8'hZZ; //Top of page 13
+assign busA=(r_wi & ~prev_sg & (Gen_Selected || Del_Selected))?OutA: //Cycle TYPE 2,6
             (~r_wi & ~st_n)? TA:                          //Cycle TYPE 3,5,7
             8'hZZ; //Schematics on page 2
 assign busB=(~r_wi & ~st_n)? TB:                          //Cycle TYPE 3,5,7
             8'hZZ;
 assign ve_n=~Busy;
 
+//Register for DEBUG
+reg [2:0]CYCLE_TYPE=0;
+
 //Accesible registers
-reg [7:0] TA=0;     //This both are the mailbox
+reg [7:0] TA=0;     //These both are the mailbox
 reg [7:0] TB=0;
 reg     Busy=0;     //Busy FF
 reg [7:0] OutA=0;
@@ -82,6 +87,7 @@ always @(posedge clk)begin
     if (pprev_sm & ~prev_sm & ~sm_n)begin   //Delayed low pulse on sm_n
         if (r_wi) begin
             if (st_n)begin                   //Cycle TYPE 1 
+                CYCLE_TYPE<=1;
                 Gen_Selected<=(~busB[7]);
                 CC<={busA[7],busB[6:0]}*10;
                 if ({busB[7:5],busA[7]}==4'b1000) begin //Delimitor
@@ -93,18 +99,21 @@ always @(posedge clk)begin
                 else Del_Selected<=0;
             end
             else begin                      //Cycle TYPE 4
+                CYCLE_TYPE<=4;
                 TA<=busA;
                 TB<=busB;
             end
         end
     end
-    else if (pprev_sg & ~prev_sg & ~sg_n)begin   //Delayed low pulse on sg_n
+    else if (prev_sg & ~sg_n)begin   //Not Delayed, CHECK later
         if (r_wi) begin
-            if (st_n)begin                   //Cycle TYPE 2 
+            if (st_n)begin                   //Cycle TYPE 2
+                CYCLE_TYPE<=2;
                 if (Gen_Selected) OutA<=ROM[CC+adr];
                 else if (Del_Selected) OutA<={5'h00,s,i,m};
             end
             else begin                      //Cycle TYPE 6
+                CYCLE_TYPE<=6;
                 TA<=busA;
                 TB<=busB;
             end
